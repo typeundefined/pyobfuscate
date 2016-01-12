@@ -2,21 +2,24 @@
 # -*-mode: python; coding: utf-8 -*-
 #
 # pyobfuscate - Python source code obfuscator
-# 
+#
 # Copyright 2004-2007 Peter Astrand <astrand@cendio.se> for Cendio AB
-# 
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; version 2 of the License. 
-# 
+# the Free Software Foundation; version 2 of the License.
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+from _ast import BinOp, Str, Add, Call, Attribute, List, Load, Subscript, Index, Num, Slice, GeneratorExp, Name, \
+    comprehension, Store
+import string
 
 import sys
 import types
@@ -31,6 +34,8 @@ import symtable
 import StringIO
 import getopt
 import re
+import ast
+import codegen
 
 TOKENBLANKS=1
 
@@ -67,7 +72,7 @@ class NameTranslator:
             if name not in existing_names:
                 break
         return name
-        
+
 
     def gen_name():
         if random.choice((True, False)):
@@ -83,8 +88,8 @@ class NameTranslator:
             result += random.choice(chars)
         return result
     gen_name = staticmethod(gen_name)
-        
-    
+
+
 
 class LambdaSymTable:
     def __init__(self, symtabs, argnames):
@@ -102,7 +107,7 @@ class LambdaSymTable:
         else:
             # If the symbol is not found in the current sumboltable,
             # then look in the toplevel symtable. Perhaps we should
-            # even look in all symtabs. 
+            # even look in all symtabs.
             try:
                 return self.symtabs[-1].lookup(name)
             except KeyError:
@@ -128,7 +133,7 @@ class CSTWalker:
         elements = parser.ast2tuple(cst, line_info=1)
         self.names = {}
         self.walk(elements, [self.symtab])
-        
+
 
 
     def getNames(self):
@@ -388,7 +393,7 @@ class CSTWalker:
                 # This is a "= test" expression
                 for node in tok:
                     # The [:-1] is because we actually are not in the
-                    # functions scope yet. 
+                    # functions scope yet.
                     self.walk(node, symtabs[:-1])
             elif toktype == token.NAME:
                 # This is either an "*args" or an "**kwargs". We could
@@ -451,10 +456,10 @@ class CSTWalker:
             # FIXME: Later, obfuscate if scope/pubabi etc OK
             self.addToNames(line3, id3, 0)
             self.modnames.append(id3)
-            
+
         for node in elements:
             self.walk(node, symtabs)
-            
+
 
     def handle_dotted_as_name(self, elements, symtabs):
         # dotted_as_name: dotted_name [NAME NAME]
@@ -490,7 +495,7 @@ class CSTWalker:
             # FIXME: Later, obfuscate if scope/pubabi etc OK
             self.addToNames(line, id, 0)
             self.modnames.append(id)
-            
+
         for node in elements:
             self.walk(node, symtabs)
 
@@ -514,7 +519,7 @@ class CSTWalker:
         for x in range(2, len(elements), 2):
             dot = elements[x]
             name = elements[x+1]
-            
+
             assert dot[0] == token.DOT
             assert name[0] == token.NAME
             id = name[1]
@@ -522,7 +527,7 @@ class CSTWalker:
             self.addToNames(line, id, 0)
         for node in elements:
             self.walk(node, symtabs)
-        
+
 
     def handle_global_stmt(self, elements, symtabs):
         # global_stmt: 'global' NAME (',' NAME)*
@@ -555,7 +560,7 @@ class CSTWalker:
             self.addToNames(line, id, obfuscate)
         for node in elements:
             self.walk(node, symtabs)
-        
+
 
     def handle_atom(self, elements, symtabs):
         # atom: ... | NAME | ...
@@ -614,10 +619,10 @@ class CSTWalker:
             for node in testlist:
                 self.walk(node, symtabs)
             elements = elements[5:]
-            
+
         tab = symtabs[-1]
         classtab = tab.lookup(id).get_namespace()
-        
+
         for node in elements:
             self.walk(node, symtabs + [classtab])
 
@@ -744,7 +749,7 @@ class CSTWalker:
 
     get_fpdef_names = staticmethod(get_fpdef_names)
 
- 
+
 
 class PubApiExtractor:
     def __init__(self, source_no_encoding):
@@ -770,7 +775,7 @@ class PubApiExtractor:
         for assnode in node.nodes:
             if not isinstance(assnode, compiler.ast.AssName):
                 continue
-            
+
             if assnode.name == "__all__" \
                    and assnode.flags == compiler.consts.OP_ASSIGN:
                 self.matches += 1
@@ -863,7 +868,7 @@ class TokenPrinter:
     AFTERCOMMENT = 0
     INSIDECOMMENT = 1
     BEFORECOMMENT = 2
-    
+
     def __init__(self, source, names):
         self.indent = 0
         self.first_on_line = 1
@@ -871,7 +876,7 @@ class TokenPrinter:
         self.names = names
         self.nametranslator = NameTranslator()
         # Pending, obfuscated noop lines. We cannot add the noop lines
-        # until we know what comes after. 
+        # until we know what comes after.
         self.pending = []
         self.pending_indent = 0
         # To detect line num changes; backslash constructs doesn't
@@ -948,14 +953,14 @@ class TokenPrinter:
                 self.this_lineno += 1
                 if self.commentstate == TokenPrinter.INSIDECOMMENT:
                     self.commentstate = TokenPrinter.AFTERCOMMENT
-                
+
             elif t_type == tokenize.NEWLINE:
                 self.first_on_line = 1
                 self.this_lineno += 1
                 sys.stdout.write("\n")
                 if self.commentstate == TokenPrinter.INSIDECOMMENT:
                     self.commentstate = TokenPrinter.AFTERCOMMENT
-                    
+
             elif t_type == tokenize.INDENT:
                 self.indent += conf.indent
             elif t_type == tokenize.DEDENT:
@@ -963,11 +968,11 @@ class TokenPrinter:
             elif t_type == tokenize.COMMENT:
                 if self.commentstate == TokenPrinter.BEFORECOMMENT:
                     self.commentstate = TokenPrinter.INSIDECOMMENT
-                
+
                 if self.first_on_line:
                     if self.commentstate in [TokenPrinter.BEFORECOMMENT, TokenPrinter.INSIDECOMMENT]:
-                        # Output comment. Only old Python includes newline. 
-                        if sys.hexversion >= 0x2040000: 
+                        # Output comment. Only old Python includes newline.
+                        if sys.hexversion >= 0x2040000:
                             t_string += "\n"
                         self.line_append(t_string)
                     elif conf.blanks != conf.KEEP_BLANKS:
@@ -975,10 +980,10 @@ class TokenPrinter:
                         self.pending_indent = self.indent
                     else:
                         sys.stdout.write("\n")
-                        
+
                     self.this_lineno += 1
                 else:
-                    if sys.hexversion >= 0x2040000: 
+                    if sys.hexversion >= 0x2040000:
                         sys.stdout.write("\n")
                         self.this_lineno += 1
 
@@ -1010,7 +1015,7 @@ class TokenPrinter:
                 self.line_append(t_string)
             else:
                 self.line_append(t_string)
-                
+
 
     def line_append(self, s):
         if self.pending:
@@ -1020,7 +1025,7 @@ class TokenPrinter:
             if conf.blanks == conf.OBFUSCATE_BLANKS:
                 sys.stdout.write(''.join(self.pending))
             self.pending = []
-        
+
         if self.first_on_line:
             sys.stdout.write(" "*self.indent)
         else:
@@ -1071,20 +1076,20 @@ def strip_encoding(source):
 def usage():
     print >>sys.stderr, """
 Usage:
-    
+
 pyobfuscate [options] <file>
 
 Options:
 
--h, --help              Print this help.     
--i, --indent <num>      Indentation to use. Default is 1. 
+-h, --help              Print this help.
+-i, --indent <num>      Indentation to use. Default is 1.
 -s, --seed <seed>       Seed to use for name randomization. Default is
-                        system time. 
+                        system time.
 -r, --removeblanks      Remove blank lines, instead of obfuscate
 -k, --keepblanks        Keep blank lines, instead of obfuscate
 -f, --firstcomment      Remove first block of comments as well
 -a, --allpublic	        When __all__ is missing, assume everything is public.
-                        The default is to assume nothing is public. 
+                        The default is to assume nothing is public.
 -v, --verbose	        Verbose mode.
 """
 
@@ -1093,7 +1098,7 @@ class Configuration:
     KEEP_BLANKS = 0
     OBFUSCATE_BLANKS = 1
     REMOVE_BLANKS = 2
-    
+
     def __init__(self):
         try:
             opts, args = getopt.getopt(sys.argv[1:], "hi:s:rkfav",
@@ -1134,7 +1139,85 @@ class Configuration:
             if o == ("-v", "--verbose"):
                 self.verbose = True
 
-    
+
+class NodeObfuscator(ast.NodeTransformer):
+    def visit_Str(self, node):
+        return node
+        # return self.obfuscate_string(node.s)
+
+    def obfuscate_string(self, s):
+        if len(s) == 0:
+            return self.generate_empty_string_node(s)
+        
+        if len(s) == 1:
+            return self.generate_single_char_node(s)
+
+        return self.generate_long_string_node(s)
+
+    def generate_empty_string_node(self, s):
+        rnd_string = self.get_random_string(10)
+        return Call(
+            args=[List(elts=[], ctx=Load())],
+            func=Attribute(
+                ctx=Load(),
+                attr='join',
+                value=Str(s=rnd_string)
+            ),
+            keywords=[],
+            starargs=None,
+            kwargs=None
+        )
+
+    def get_random_string(self, str_length):
+        char_set = string.lowercase + string.uppercase
+        return ''.join([random.choice(char_set) for i in xrange(str_length)])
+
+    def generate_single_char_node(self, s):
+        rnd_left = self.get_random_string(12)
+        rnd_right = self.get_random_string(23)
+        str_value = rnd_left + s + rnd_right
+        idx = len(rnd_left)
+
+        return Subscript(
+            value=Str(
+                s=str_value
+            ),
+            ctx=Load(),
+            slice=Index(
+                value=Num(
+                    n=idx
+                )
+            )
+        )
+
+    def generate_long_string_node(self, s):
+        rand_str = self.get_random_string(8)
+
+        funcs = [
+            lambda x: BinOp(left=Str(s=x[:len(x) / 2]),
+                            op=Add(),
+                            right=Str(s=x[len(x) / 2:])),
+            # 'abc' -> 'cba'[::-1]
+            lambda x: Subscript(value=Str(s=x[::-1]),
+                                slice=Slice(lower=None, upper=None,
+                                            step=Num(n=-1)),
+                                ctx=Load()),
+            # 'abc' -> ''.join(_x for _x in reversed('cba'))
+            lambda x: Call(
+                func=Attribute(value=Str(s=''), attr='join', ctx=Load()), args=[
+                    GeneratorExp(elt=Name(id=rand_str, ctx=Load()), generators=[
+                        comprehension(target=Name(id=rand_str, ctx=Store()),
+                                      iter=Call(func=Name(id='reversed',
+                                                          ctx=Load()),
+                                                args=[Str(s=x[::-1])],
+                                                keywords=[], starargs=None,
+                                                kwargs=None),
+                                      ifs=[])])],
+                keywords=[], starargs=None, kwargs=None),
+        ]
+        fn = random.choice(funcs)
+        return fn(s)
+
 
 def main():
     global conf
@@ -1148,11 +1231,17 @@ def main():
         source_no_encoding = strip_encoding(source)
     else:
         source_no_encoding = source
-        
 
-    # Step 1: Extract __all__ from source. 
+    # Step 0: Perform all the AST-based transformation to mangle the semantics.
+    root_ast = ast.parse(source_no_encoding)
+    node_obfuscator = NodeObfuscator()
+    node_obfuscator.visit(root_ast)
+    out_str = codegen.to_source(root_ast)
+
+    source_no_encoding = StringIO.StringIO(out_str).read()
+
+    # Step 1: Extract __all__ from source.
     pae = PubApiExtractor(source_no_encoding)
-
 
     # Step 2: Walk the CST tree. The result of this step is a
     # dictionary indexed on line numbers, which contains dictionaries
@@ -1179,7 +1268,7 @@ def main():
     # code. Obfuscate those symbols gathered earlier. Change
     # indentation, blank lines etc.
     TokenPrinter(source, ce.result)
-    
+
     # Step 5: Output a marker that makes it possible to recognize
     # obfuscated files
     print "# dd678faae9ac167bc83abf78e5cb2f3f0688d3a3"
