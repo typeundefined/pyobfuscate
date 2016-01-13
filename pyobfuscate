@@ -18,7 +18,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 from _ast import BinOp, Str, Add, Call, Attribute, List, Load, Subscript, Index, Num, Slice, GeneratorExp, Name, \
-    comprehension, Store
+    comprehension, Store, Expr
 import string
 import sys
 import types
@@ -1141,8 +1141,34 @@ class Configuration:
                 self.verbose = True
 
 
-class NodeObfuscator(ast.NodeTransformer):
+class CustomTransformer(ast.NodeTransformer):
+
+    def __init__(self):
+        super(CustomTransformer, self).__init__()
+        # parent_nodes_stack memorizes all the parent nodes of the current one.
+        # this is helpful since AST nodes don't have references to each other so it is impossible to
+        # reconstruct the upper level AST nodes.
+        self.parent_nodes_stack = []
+
+    def _get_parent_node(self):
+        last_idx = len(self.parent_nodes_stack) - 1
+        return self.parent_nodes_stack[last_idx]
+
+    def generic_visit(self, node):
+        self.parent_nodes_stack.append(node)
+        v = super(CustomTransformer, self).generic_visit(node)
+        self.parent_nodes_stack.pop()
+        return v
+
+
+class NodeObfuscator(CustomTransformer):
     def visit_Str(self, node):
+        parent = self._get_parent_node()
+        if isinstance(parent, Expr):
+            # Most probably this string is a docstring; keep it as is.
+            # Note that both docstrings and usual strings are represented as Str node so there is no way to
+            # distinguish them.
+            return node
         return self.obfuscate_string(node.s)
 
     def obfuscate_string(self, s):
