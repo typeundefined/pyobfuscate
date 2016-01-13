@@ -20,7 +20,6 @@
 from _ast import BinOp, Str, Add, Call, Attribute, List, Load, Subscript, Index, Num, Slice, GeneratorExp, Name, \
     comprehension, Store
 import string
-
 import sys
 import types
 import symbol
@@ -35,7 +34,9 @@ import StringIO
 import getopt
 import re
 import ast
-import codegen
+
+import astor
+
 
 TOKENBLANKS=1
 
@@ -1142,8 +1143,7 @@ class Configuration:
 
 class NodeObfuscator(ast.NodeTransformer):
     def visit_Str(self, node):
-        return node
-        # return self.obfuscate_string(node.s)
+        return self.obfuscate_string(node.s)
 
     def obfuscate_string(self, s):
         if len(s) == 0:
@@ -1236,9 +1236,12 @@ def main():
     root_ast = ast.parse(source_no_encoding)
     node_obfuscator = NodeObfuscator()
     node_obfuscator.visit(root_ast)
-    out_str = codegen.to_source(root_ast)
 
+    out_str = astor.to_source(root_ast)
     source_no_encoding = StringIO.StringIO(out_str).read()
+
+    # Since all the consequent steps must work over the modified source, we forget about the initial file contents
+    source = source_no_encoding
 
     # Step 1: Extract __all__ from source.
     pae = PubApiExtractor(source_no_encoding)
