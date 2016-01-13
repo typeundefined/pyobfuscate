@@ -18,7 +18,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 from _ast import BinOp, Str, Add, Call, Attribute, List, Load, Subscript, Index, Num, Slice, GeneratorExp, Name, \
-    comprehension, Store, Expr
+    comprehension, Store, Expr, Assign
 import string
 import sys
 import types
@@ -36,7 +36,6 @@ import re
 import ast
 
 import astor
-
 
 TOKENBLANKS=1
 
@@ -1169,6 +1168,9 @@ class NodeObfuscator(CustomTransformer):
             # Note that both docstrings and usual strings are represented as Str node so there is no way to
             # distinguish them.
             return node
+        if self.is_all_assignment():
+            # Strings which are related to __all__ definition must be left as is
+            return node
         return self.obfuscate_string(node.s)
 
     def obfuscate_string(self, s):
@@ -1243,6 +1245,22 @@ class NodeObfuscator(CustomTransformer):
         ]
         fn = random.choice(funcs)
         return fn(s)
+
+    def is_all_assignment(self):
+        parents = self.parent_nodes_stack
+
+        asgn_list = filter(lambda x: isinstance(x, Assign), parents)
+        for asgn in asgn_list:
+            targets = getattr(asgn, 'targets')
+            if targets is None:
+                continue
+
+            all_elem = filter(lambda x: isinstance(x, Name) and x.id == '__all__', targets)
+            if len(all_elem) > 0:
+                return True
+
+        return False
+
 
 
 def main():
