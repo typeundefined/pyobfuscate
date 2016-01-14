@@ -655,34 +655,26 @@ class CSTWalker:
         for node in elements:
             self.walk(node, symtabs)
 
-
     def handle_lambdef(self, elements, symtabs):
         # lambdef: 'lambda' [varargslist] ':' test
         # elements is like:
         # (307, (1, 'lambda', 588), (261, (262, (1, 'e', 588))), (11, ':', 588)
         # or
         # (307, (1, 'lambda', 40), (11, ':', 40), (292 ...
+
+        lambdatab = LambdaSymTable(symtabs, [])
         if elements[2][0] == token.COLON:
             # There are no lambda arguments. Simple!
             # We still need to create a LambdaSymTable though since we
             # rely on some magic lookup that it does.
             test = elements[3]
-            lambdatab = LambdaSymTable(symtabs, [])
             for node in test:
                 self.walk(node, symtabs + [lambdatab])
         else:
             # The more common case: You have a varargslist.
             varargslist = elements[2]
 
-            # Part 1: Deal with varargslist. Fetch the names of the
-            # arguments. Construct a LambdaSymTable.
-            arguments = self.get_varargs_names(varargslist)
-            for line, name in arguments:
-                self.addToNames(line, name, 1)
-
-            argnames = [e[1] for e in arguments]
-            lambdatab = LambdaSymTable(symtabs, argnames)
-
+            self.walk(varargslist, symtabs + [lambdatab])
             # Part 2: Parse the 'test' part, using the LambdaSymTable.
             test = elements[4]
             for node in test:
