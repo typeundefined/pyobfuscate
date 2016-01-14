@@ -1077,8 +1077,7 @@ Options:
 -i, --indent <num>      Indentation to use. Default is 1.
 -s, --seed <seed>       Seed to use for name randomization. Default is
                         system time.
--r, --removeblanks      Remove blank lines, instead of obfuscate
--k, --keepblanks        Keep blank lines, instead of obfuscate
+-m, --no-string-mangle  Disable String mangling during obfuscation.
 -f, --firstcomment      Remove first block of comments as well
 -a, --allpublic	        When __all__ is missing, assume everything is public.
                         The default is to assume nothing is public.
@@ -1093,24 +1092,27 @@ class Configuration:
 
     def __init__(self):
         try:
-            opts, args = getopt.getopt(sys.argv[1:], "hi:s:rkfav",
-                                       ["help", "indent=", "seed=", "removeblanks",
-                                        "keepblanks", "firstcomment", "allpublic",
-                                        "verbose"])
+            opts, args = getopt.getopt(sys.argv[1:], "hi:s:favm",
+                                       ["help", "indent=", "seed=",
+                                        "firstcomment", "allpublic",
+                                        "verbose", "nostringmangle"])
+
             if len(args) != 1:
                 raise getopt.GetoptError("A filename is required", "")
         except getopt.GetoptError, e:
-            print >>sys.stderr, "Error:", e
+            print >> sys.stderr, "Error:", e
             usage()
             sys.exit(2)
 
         self.file = args[0]
         self.indent = 1
+        # TODO: set seed to the unix time
         self.seed = 42
         self.blanks = self.OBFUSCATE_BLANKS
         self.firstcomment = False
         self.allpublic = False
         self.verbose = False
+        self.string_mangling = True
 
         for o, a in opts:
             if o in ("-h", "--help"):
@@ -1120,16 +1122,14 @@ class Configuration:
                 self.indent = int(a)
             if o in ("-s", "--seed"):
                 self.seed = a
-            if o in ("-r", "--removeblanks"):
-                self.blanks = self.REMOVE_BLANKS
-            if o in ("-k", "--keepblanks"):
-                self.blanks = self.KEEP_BLANKS
             if o in ("-f", "--firstcomment"):
                 self.firstcomment = True
             if o in ("-a", "--allpublic"):
                 self.allpublic = True
-            if o == ("-v", "--verbose"):
+            if o in ("-v", "--verbose"):
                 self.verbose = True
+            if o in ("-m", "--no-string-mangle"):
+                self.string_mangling = False
 
 
 class CustomTransformer(ast.NodeTransformer):
@@ -1268,16 +1268,17 @@ def main():
     else:
         source_no_encoding = source
 
-    # Step 0: Perform all the AST-based transformation to mangle the semantics.
-    root_ast = ast.parse(source_no_encoding)
-    node_obfuscator = NodeObfuscator()
-    node_obfuscator.visit(root_ast)
+    if conf.string_mangling:
+        # Step 0: Perform all the AST-based transformation to mangle the semantics.
+        root_ast = ast.parse(source_no_encoding)
+        node_obfuscator = NodeObfuscator()
+        node_obfuscator.visit(root_ast)
 
-    out_str = astor.to_source(root_ast)
-    source_no_encoding = StringIO.StringIO(out_str).read()
+        out_str = astor.to_source(root_ast)
+        source_no_encoding = StringIO.StringIO(out_str).read()
 
-    # Since all the consequent steps must work over the modified source, we forget about the initial file contents
-    source = source_no_encoding
+        # Since all the consequent steps must work over the modified source, we forget about the initial file contents
+        source = source_no_encoding
 
     # Step 1: Extract __all__ from source.
     pae = PubApiExtractor(source_no_encoding)
@@ -1310,7 +1311,7 @@ def main():
 
     # Step 5: Output a marker that makes it possible to recognize
     # obfuscated files
-    print "# dd678faae9ac167bc83abf78e5cb2f3f0688d3a3"
+    print "\n# dd678faae9ac167bc83abf78e5cb2f3f0688d3a3"
 
 if __name__ == "__main__":
     main()
