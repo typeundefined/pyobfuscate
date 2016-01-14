@@ -694,54 +694,6 @@ class CSTWalker:
         for node in elements:
             self.walk(node, symtabs)
 
-    def get_varargs_names(elements):
-        """Extract all argument names and lines from varargslist"""
-        result = []
-
-        next_is_name = False
-        for tok in elements:
-            if type(tok) != types.TupleType:
-                continue
-
-            toktype = tok[0]
-            if next_is_name:
-                assert tok[0] == token.NAME
-                id = tok[1]
-                line = tok[2]
-                result.append((line, id))
-                next_is_name = False
-            elif toktype in [token.STAR, token.DOUBLESTAR]:
-                next_is_name = True
-            elif toktype == symbol.fpdef:
-                result.extend(CSTWalker.get_fpdef_names(tok))
-
-        return result
-
-    get_varargs_names = staticmethod(get_varargs_names)
-
-
-    def get_fpdef_names(elements):
-        """Extract all argument names from fpdef"""
-        result = []
-
-        # We are not interested in terminal tokens
-        if type(elements) != types.TupleType:
-            return result
-        if token.ISTERMINAL(elements[0]):
-            return result
-
-        name = elements[1]
-        assert name[0] == token.NAME
-        id = name[1]
-        line = name[2]
-        result.append((line, id))
-        for node in elements:
-            result.extend(CSTWalker.get_fpdef_names(node))
-        return result
-
-    get_fpdef_names = staticmethod(get_fpdef_names)
-
-
 
 class PubApiExtractor:
     def __init__(self, source_no_encoding):
