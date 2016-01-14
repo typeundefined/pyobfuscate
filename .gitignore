@@ -1,0 +1,9 @@
+dist/
+test/generated/
+*.egg
+*.egg-info/
+.eggs/
+.idea
+*.iml
+*.py[co]
+*.swp
