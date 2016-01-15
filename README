@@ -43,6 +43,8 @@ not. Here's a list of what pyobfuscate currently does:
 
 * Inserts bogus lines instead of blank lines. 
 
+* Translates string constants to a more complicated but effectively 
+equivalent expressions so it is way harder to grep by them.
 
 Limitations
 -----------
