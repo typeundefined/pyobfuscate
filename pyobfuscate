@@ -1281,10 +1281,6 @@ def main():
         writer = StdoutWriter()
     TokenPrinter(source, ce.result, writer)
 
-    # Step 5: Output a marker that makes it possible to recognize
-    # obfuscated files
-    print "\n# dd678faae9ac167bc83abf78e5cb2f3f0688d3a3"
-
 if __name__ == "__main__":
     main()
 
