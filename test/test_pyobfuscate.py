@@ -48,22 +48,6 @@ class ObfuscateTest(unittest.TestCase):
         retcode = self.obfuscate_and_run_file(fname, args)
         os.remove(fname)
         return retcode
-    
-    def test_DontKeepblanks(self):
-        """Don't keep blanks unless told so"""
-        output = self.run_pyobfuscate("testfiles/commblanks.py")
-        assert None == re.search(output, "^$"), "Blank lines in output"
-        lines = output.split("\n")
-        assert "#" == lines[0][0], "First line is not a comment"
-        assert 42 == self.run_src(output)        
-
-    def test_Keepblanks(self):
-        """Keep blanks when told so"""
-        output = self.run_pyobfuscate("testfiles/commblanks.py",
-                                      args=["--keepblanks"])
-        lines = output.split("\n")
-        assert '' == lines[5], "Blank lines removed"
-        assert 42 == self.run_src(output)
 
     def test_lambdaGlobal(self):
         """Support lambda constructs referencing global functions.
@@ -122,7 +106,7 @@ class ObfuscateTest(unittest.TestCase):
 
     def test_import_dyn_all(self):
         """Verify that trying to import from a file with dynamic __all__ fails"""
-        cmdline = ["../pyobfuscate", "testfiles/dyn_all.py"]        
+        cmdline = ["../pyobfuscate", "testfiles/dyn_all.py"]
         p = subprocess.Popen(cmdline,
                              stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE)
@@ -156,8 +140,8 @@ class ObfuscateTest(unittest.TestCase):
         output = self.run_pyobfuscate("testfiles/bug1673.py")
         assert 49 == self.run_src(output), "Incorrect value returned after obfuscation"
 
-                                 
 
-    
+
+
 if "__main__" == __name__:
     unittest.main()
