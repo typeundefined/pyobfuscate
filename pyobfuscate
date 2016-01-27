@@ -1239,15 +1239,6 @@ class NodeObfuscator(CustomTransformer):
         name = re.sub(r'\..*$', '', name)
         return name
 
-    def get_from_builtins(self, name_to_get):
-        return Call(
-            args=[Name(ctx=Load, id='__builtins__'), self.obfuscate_string(name_to_get)],
-            func=Name(ctx=Load, id='getattr'),
-            starargs=None,
-            kwargs=None,
-            keywords=[],
-        )
-
     def transform_import(self, imp_name):
         as_name = self.get_import_symbol_name(imp_name)
         module_name = imp_name.name
@@ -1256,7 +1247,7 @@ class NodeObfuscator(CustomTransformer):
                             starargs=None,
                             kwargs=None,
                             keywords=[],
-                            func=self.get_from_builtins('__import__'),
+                            func=Name(ctx=Load, id='__import__'),
                             args=[
                                 self.obfuscate_string(module_name),
                                 self.func_invoke('globals'),
@@ -1267,7 +1258,7 @@ class NodeObfuscator(CustomTransformer):
         return assign
 
     def func_invoke(self, func_name):
-        node = Call(args=[], keywords=[], starargs=None, kwargs=None, func=self.get_from_builtins(func_name))
+        node = Call(args=[], keywords=[], starargs=None, kwargs=None, func=Name(id=func_name, ctx=Load))
         return node
 
 
