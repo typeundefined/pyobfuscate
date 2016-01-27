@@ -1132,6 +1132,13 @@ class NodeObfuscator(CustomTransformer):
             return node
         return self.obfuscate_string(node.s)
 
+    def visit_Import(self, node):
+        result = []
+        for imp_name in node.names:
+            res_node = self.transform_import(imp_name)
+            result.append(res_node)
+        return result
+
     def obfuscate_string(self, s):
         if len(s) == 0:
             return self.generate_empty_string_node(s)
@@ -1206,6 +1213,13 @@ class NodeObfuscator(CustomTransformer):
         return fn(s)
 
     def is_all_assignment(self):
+        """
+        True if the current AST node belongs to __all__ assignment. For instance, we are looking at Str(s='test') node
+          while the whole expression is:
+
+          __all__ = ['test', 'something-else']
+        :return:
+        """
         parents = self.parent_nodes_stack
 
         asgn_list = filter(lambda x: isinstance(x, Assign), parents)
@@ -1220,6 +1234,32 @@ class NodeObfuscator(CustomTransformer):
 
         return False
 
+    def get_import_symbol_name(self, imp_name):
+        name = imp_name.asname or imp_name.name
+        name = re.sub(r'\..*$', '', name)
+        return name
+
+    def transform_import(self, imp_name):
+        as_name = self.get_import_symbol_name(imp_name)
+        module_name = imp_name.name
+        assign = Assign(targets=[Name(ctx=Store, id=as_name)],
+                        value=Call(
+                            starargs=None,
+                            kwargs=None,
+                            keywords=[],
+                            func=Name(ctx=Load, id='__import__'),
+                            args=[
+                                self.obfuscate_string(module_name),
+                                self.func_invoke('globals'),
+                                self.func_invoke('locals'),
+                                List(ctx=Load, elts=[]),
+                                Num(n=-1)
+                                ]))
+        return assign
+
+    def func_invoke(self, func_name):
+        node = Call(args=[], keywords=[], starargs=None, kwargs=None, func=Name(id=func_name, ctx=Load))
+        return node
 
 
 def main():
