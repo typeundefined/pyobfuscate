@@ -39,6 +39,7 @@ import astor
 from output import BaseWriter, StdoutWriter, FileWriter
 
 TOKENBLANKS=1
+MAX_STRING_RECURSION = 10
 
 class NameTranslator:
     def __init__(self):
@@ -1120,6 +1121,11 @@ class CustomTransformer(ast.NodeTransformer):
 
 
 class NodeObfuscator(CustomTransformer):
+
+    def __init__(self):
+        super(NodeObfuscator, self).__init__()
+        self.str_func_counter = 0
+
     def visit_Str(self, node):
         parent = self._get_parent_node()
         if isinstance(parent, Expr):
@@ -1186,14 +1192,14 @@ class NodeObfuscator(CustomTransformer):
             result.append(node)
         return result
 
-    def obfuscate_string(self, s):
+    def obfuscate_string(self, s, n=1):
         if len(s) == 0:
             return self.generate_empty_string_node(s)
         
         if len(s) == 1:
-            return self.generate_single_char_node(s)
+            return self.generate_single_char_node(s, n)
 
-        return self.generate_long_string_node(s)
+        return self.generate_long_string_node(s, n)
 
     def generate_empty_string_node(self, s):
         rnd_string = self.get_random_string(10)
@@ -1213,16 +1219,14 @@ class NodeObfuscator(CustomTransformer):
         char_set = string.lowercase + string.uppercase
         return ''.join([random.choice(char_set) for i in xrange(str_length)])
 
-    def generate_single_char_node(self, s):
+    def generate_single_char_node(self, s, n=1):
         rnd_left = self.get_random_string(12)
         rnd_right = self.get_random_string(23)
         str_value = rnd_left + s + rnd_right
         idx = len(rnd_left)
 
         return Subscript(
-            value=Str(
-                s=str_value
-            ),
+            value=self.get_obfuscated_str_node(str_value, n),
             ctx=Load(),
             slice=Index(
                 value=Num(
@@ -1231,32 +1235,39 @@ class NodeObfuscator(CustomTransformer):
             )
         )
 
-    def generate_long_string_node(self, s):
+    def get_obfuscated_str_node(self, str_value, n):
+        if len(str_value) and (n < MAX_STRING_RECURSION):
+            return self.obfuscate_string(str_value, n=n + 1)
+        return Str(s=str_value)
+
+    def generate_long_string_node(self, s, n):
         rand_str = self.get_random_string(8)
+        proc_str = lambda str_val: self.get_obfuscated_str_node(str_val, n)
 
         funcs = [
-            lambda x: BinOp(left=Str(s=x[:len(x) / 2]),
+            lambda x: BinOp(left=proc_str(x[:len(x) / 2]),
                             op=Add(),
-                            right=Str(s=x[len(x) / 2:])),
+                            right=proc_str(x[len(x) / 2:])),
             # 'abc' -> 'cba'[::-1]
-            lambda x: Subscript(value=Str(s=x[::-1]),
+            lambda x: Subscript(value=proc_str(x[::-1]),
                                 slice=Slice(lower=None, upper=None,
                                             step=Num(n=-1)),
-                                ctx=Load()),
+                                ctx=Load),
             # 'abc' -> ''.join(_x for _x in reversed('cba'))
             lambda x: Call(
-                func=Attribute(value=Str(s=''), attr='join', ctx=Load()), args=[
+                func=Attribute(value=proc_str(''), attr='join', ctx=Load()), args=[
                     GeneratorExp(elt=Name(id=rand_str, ctx=Load()), generators=[
                         comprehension(target=Name(id=rand_str, ctx=Store()),
                                       iter=Call(func=Name(id='reversed',
                                                           ctx=Load()),
-                                                args=[Str(s=x[::-1])],
+                                                args=[proc_str(x[::-1])],
                                                 keywords=[], starargs=None,
                                                 kwargs=None),
                                       ifs=[])])],
                 keywords=[], starargs=None, kwargs=None),
         ]
-        fn = random.choice(funcs)
+        idx = self._get_next_index() % len(funcs)
+        fn = funcs[idx]
         return fn(s)
 
     def is_all_assignment(self):
@@ -1307,6 +1318,11 @@ class NodeObfuscator(CustomTransformer):
     def func_invoke(self, func_name):
         node = Call(args=[], keywords=[], starargs=None, kwargs=None, func=Name(id=func_name, ctx=Load))
         return node
+
+    def _get_next_index(self):
+        t = self.str_func_counter
+        self.str_func_counter += 1
+        return t
 
 
 def main():
