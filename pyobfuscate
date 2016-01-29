@@ -1139,6 +1139,53 @@ class NodeObfuscator(CustomTransformer):
             result.append(res_node)
         return result
 
+    def visit_ImportFrom(self, node):
+        if node.level != 0:
+            # relative imports are not supported so far
+            return node
+
+        result = []
+        module_name = node.module
+        imp_symbols = {}
+        for imp_name in node.names:
+            imp_symbols[imp_name.name] = self.get_import_symbol_name(imp_name)
+
+        if '*' in imp_symbols:
+            # instruction like `from os import *` can't be obfuscated. We know nothing about the
+            # names that will appear here.
+            return node
+
+        elts_to_import = [Str(s=val) for val in imp_symbols.keys()]
+
+        var_name = self.get_random_string(32)
+        assign = Assign(targets=[Name(ctx=Store, id=var_name)],
+                        value=Call(
+                            starargs=None,
+                            kwargs=None,
+                            keywords=[],
+                            func=Name(ctx=Load, id='__import__'),
+                            args=[
+                                self.obfuscate_string(module_name),
+                                self.func_invoke('globals'),
+                                self.func_invoke('locals'),
+                                List(ctx=Load, elts=elts_to_import),
+                                Num(n=-1)
+                                ]))
+
+        result.append(assign)
+
+        for name, as_name in imp_symbols.iteritems():
+            node = Assign(targets=[Name(ctx=Store, id=as_name)],
+                          value=Attribute(
+                              ctx=Load,
+                              attr=name,
+                              value=Name(
+                                  ctx=Load,
+                                  id=var_name
+                              )))
+            result.append(node)
+        return result
+
     def obfuscate_string(self, s):
         if len(s) == 0:
             return self.generate_empty_string_node(s)
