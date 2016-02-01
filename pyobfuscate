@@ -1043,6 +1043,7 @@ Options:
 -f, --firstcomment      Remove first block of comments as well
 -a, --allpublic	        When __all__ is missing, assume everything is public.
                         The default is to assume nothing is public.
+-c, --crazy             The level of craziness when obfuscating the strings. Possible values are: 0, 1, 2. Default is 2.
 -v, --verbose	        Verbose mode.
 """
 
@@ -1054,11 +1055,11 @@ class Configuration:
 
     def __init__(self):
         try:
-            opts, args = getopt.getopt(sys.argv[1:], "ht:s:favmi",
+            opts, args = getopt.getopt(sys.argv[1:], "ht:s:favmic:",
                                        ["help", "indent=", "seed=",
                                         "firstcomment", "allpublic",
                                         "verbose", "nostringmangle",
-                                        "in-place"])
+                                        "in-place", "crazy"])
 
             if len(args) != 1:
                 raise getopt.GetoptError("A filename is required", "")
@@ -1078,6 +1079,8 @@ class Configuration:
         self.string_mangling = True
 
         self.write_in_place = False
+        self.max_string_recursion = MAX_STRING_RECURSION
+
 
         for o, a in opts:
             if o in ("-h", "--help"):
@@ -1097,6 +1100,9 @@ class Configuration:
                 self.string_mangling = False
             if o in ("-i", "--in-place"):
                 self.write_in_place = True
+            if o in ("-c", "--crazy"):
+                assert a in ["0", "1", "2"]
+                self.max_string_recursion = int(a) * 5
 
 
 
@@ -1122,9 +1128,10 @@ class CustomTransformer(ast.NodeTransformer):
 
 class NodeObfuscator(CustomTransformer):
 
-    def __init__(self):
+    def __init__(self, string_recursion_level=MAX_STRING_RECURSION):
         super(NodeObfuscator, self).__init__()
         self.str_func_counter = 0
+        self.string_recursion = string_recursion_level
 
     def visit_Str(self, node):
         parent = self._get_parent_node()
@@ -1164,19 +1171,26 @@ class NodeObfuscator(CustomTransformer):
         elts_to_import = [Str(s=val) for val in imp_symbols.keys()]
 
         var_name = self.get_random_string(32)
+        invoke_import = Call(
+            starargs=None, kwargs=None, keywords=[],
+            func=Name(ctx=Load, id='__import__'),
+            args=[self.obfuscate_string(module_name),
+                  self.func_invoke('globals'),
+                  self.func_invoke('locals'),
+                  List(ctx=Load, elts=elts_to_import), Num(n=-1)])
+
+        value = astor.to_source(invoke_import)
+        invoke_eval = Call(
+            starargs=None,
+            kwargs=None,
+            keywords=[],
+            func=Name(ctx=Load, id='eval'),
+            args=[
+                self.obfuscate_string(value),
+            ])
+
         assign = Assign(targets=[Name(ctx=Store, id=var_name)],
-                        value=Call(
-                            starargs=None,
-                            kwargs=None,
-                            keywords=[],
-                            func=Name(ctx=Load, id='__import__'),
-                            args=[
-                                self.obfuscate_string(module_name),
-                                self.func_invoke('globals'),
-                                self.func_invoke('locals'),
-                                List(ctx=Load, elts=elts_to_import),
-                                Num(n=-1)
-                                ]))
+                        value=invoke_eval)
 
         result.append(assign)
 
@@ -1236,7 +1250,7 @@ class NodeObfuscator(CustomTransformer):
         )
 
     def get_obfuscated_str_node(self, str_value, n):
-        if len(str_value) and (n < MAX_STRING_RECURSION):
+        if len(str_value) and (n < self.string_recursion):
             return self.obfuscate_string(str_value, n=n + 1)
         return Str(s=str_value)
 
@@ -1300,19 +1314,33 @@ class NodeObfuscator(CustomTransformer):
     def transform_import(self, imp_name):
         as_name = self.get_import_symbol_name(imp_name)
         module_name = imp_name.name
+
+        export_symbols = []
+
+        if self._export_needed(imp_name):
+            export_symbols.append(Str(s=module_name))
+
+        invoke_import = Call(starargs=None, kwargs=None, keywords=[],
+                             func=Name(ctx=Load, id='__import__'),
+                             args=[self.obfuscate_string(module_name),
+                                   self.func_invoke('globals'),
+                                   self.func_invoke('locals'),
+                                   List(ctx=Load, elts=export_symbols),
+                                   Num(n=-1)])
+
+        value = astor.to_source(invoke_import)
+        invoke_eval = Call(
+            starargs=None,
+            kwargs=None,
+            keywords=[],
+            func=Name(ctx=Load, id='eval'),
+            args=[
+                self.obfuscate_string(value),
+            ])
+
         assign = Assign(targets=[Name(ctx=Store, id=as_name)],
-                        value=Call(
-                            starargs=None,
-                            kwargs=None,
-                            keywords=[],
-                            func=Name(ctx=Load, id='__import__'),
-                            args=[
-                                self.obfuscate_string(module_name),
-                                self.func_invoke('globals'),
-                                self.func_invoke('locals'),
-                                List(ctx=Load, elts=[]),
-                                Num(n=-1)
-                                ]))
+                        value=invoke_eval)
+
         return assign
 
     def func_invoke(self, func_name):
@@ -1323,6 +1351,11 @@ class NodeObfuscator(CustomTransformer):
         t = self.str_func_counter
         self.str_func_counter += 1
         return t
+
+    def _export_needed(self, imp_name):
+        has_as = imp_name.asname is not None
+        has_dots = re.match(r'^(.)*\.', imp_name.name) is not None
+        return has_as and has_dots
 
 
 def main():
@@ -1341,7 +1374,7 @@ def main():
     if conf.string_mangling:
         # Step 0: Perform all the AST-based transformation to mangle the semantics.
         root_ast = ast.parse(source_no_encoding)
-        node_obfuscator = NodeObfuscator()
+        node_obfuscator = NodeObfuscator(conf.max_string_recursion)
         node_obfuscator.visit(root_ast)
 
         out_str = astor.to_source(root_ast)
