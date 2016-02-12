@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 #
 # Execute the file with the same name as myself minus the extension.
 # Author: Peter Astrand <astrand@cendio.se>
