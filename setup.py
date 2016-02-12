@@ -7,7 +7,7 @@ Python source code obfuscator
 from distutils.core import setup
 
 setup (name = "pyobfuscate",
-       version = "0.3",
+       version = "0.4",
        license = "GPL",
        description = "pyobfuscate",
        long_description = DESCRIPTION,
